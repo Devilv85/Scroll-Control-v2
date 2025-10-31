@@ -18,12 +18,12 @@ object StatKeys {
 
 class StatsRepository(private val context: Context) {
     val todayCount: Flow<Int> = context.statsStore.data.map { it[StatKeys.interventionsToday] ?: 0 }
+    val streakFlow: Flow<Int> = context.statsStore.data.map { it[StatKeys.streak] ?: 0 }
 
     suspend fun markIntervention(dayOfYear: Int) {
         context.statsStore.edit { prefs: Preferences ->
             val prevDay = prefs[StatKeys.lastDay] ?: dayOfYear
             if (prevDay != dayOfYear) {
-                // reset daily; update streak if consecutive
                 val prevStreak = prefs[StatKeys.streak] ?: 0
                 prefs[StatKeys.streak] = if (prevDay == dayOfYear - 1) prevStreak + 1 else 1
                 prefs[StatKeys.interventionsToday] = 0

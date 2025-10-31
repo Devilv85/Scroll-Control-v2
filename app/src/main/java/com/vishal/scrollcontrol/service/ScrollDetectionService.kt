@@ -8,7 +8,6 @@ import com.vishal.scrollcontrol.data.StatsRepository
 import com.vishal.scrollcontrol.domain.InterventionController
 import com.vishal.scrollcontrol.domain.Stage
 import dagger.hilt.android.AndroidEntryPoint
-import java.util.Calendar
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,34 +36,28 @@ class ScrollDetectionService : AccessibilityService() {
         val pkg = event.packageName?.toString() ?: return
         if (pkg != PKG_YOUTUBE && pkg != PKG_INSTAGRAM) return
 
-        val root = rootInActiveWindow ?: return
-        val score = scoreSignals(pkg, root)
-        if (score < 0.6f) return
+        serviceScope.launch {
+            val cfg = settings.getSnapshot()
+            if ((pkg == PKG_YOUTUBE && !cfg.enableYouTube) || (pkg == PKG_INSTAGRAM && !cfg.enableInstagram)) return@launch
 
-        val now = System.currentTimeMillis()
+            val root = rootInActiveWindow ?: return@launch
+            val score = scoreSignals(pkg, root)
+            if (score < 0.6f) return@launch
 
-        // Read settings once per event for simplicity (will be optimized later by caching flows)
-        val graceMs = 5 * 60_000L
-        val cooldownMs = 60 * 60_000L
+            val now = System.currentTimeMillis()
+            val next = controller.update(
+                packageName = pkg,
+                now = now,
+                graceMs = cfg.graceMinutes * 60_000L,
+                cooldownMs = cfg.cooldownMinutes * 60_000L
+            )
 
-        val next = controller.update(
-            packageName = pkg,
-            now = now,
-            graceMs = graceMs,
-            cooldownMs = cooldownMs
-        )
-
-        when (next.stage) {
-            Stage.GRACE -> Unit
-            Stage.NUDGE -> gentleNudge()
-            Stage.PAUSE -> mindfulPause()
-            Stage.REDIRECT -> {
-                tryRedirect(pkg)
-                incrementTodayAsync()
-            }
-            Stage.BLOCK -> {
-                enforceCooldown(pkg)
-                incrementTodayAsync()
+            when (next.stage) {
+                Stage.GRACE -> Unit
+                Stage.NUDGE -> if (cfg.overlaysEnabled) gentleNudge()
+                Stage.PAUSE -> if (cfg.overlaysEnabled) mindfulPause()
+                Stage.REDIRECT -> { tryRedirect(pkg); incrementTodayAsync() }
+                Stage.BLOCK -> { enforceCooldown(pkg); incrementTodayAsync() }
             }
         }
     }
@@ -75,7 +68,6 @@ class ScrollDetectionService : AccessibilityService() {
         var idHits = 0
         var textHits = 0
         var urlHits = 0
-
         fun visit(node: AccessibilityNodeInfo?) {
             if (node == null) return
             node.viewIdResourceName?.let { vid ->
@@ -90,7 +82,6 @@ class ScrollDetectionService : AccessibilityService() {
             }
             for (i in 0 until node.childCount) visit(node.getChild(i))
         }
-
         visit(root)
         val weighted = idHits * 0.5f + textHits * 0.3f + urlHits * 0.2f
         return 1f - (1f / (1f + weighted))
@@ -98,16 +89,14 @@ class ScrollDetectionService : AccessibilityService() {
 
     private fun gentleNudge() { /* TODO overlay/haptic */ }
     private fun mindfulPause() { /* TODO overlay */ }
-
     private fun tryRedirect(pkg: String) { performGlobalAction(GLOBAL_ACTION_BACK) }
     private fun enforceCooldown(pkg: String) { performGlobalAction(GLOBAL_ACTION_HOME) }
 
     private fun incrementTodayAsync() {
         serviceScope.launch {
-            try {
-                val cal = Calendar.getInstance()
-                stats.markIntervention(cal.get(Calendar.DAY_OF_YEAR))
-            } catch (_: Throwable) { }
+            runCatching {
+                stats.markIntervention(java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR))
+            }
         }
     }
 }

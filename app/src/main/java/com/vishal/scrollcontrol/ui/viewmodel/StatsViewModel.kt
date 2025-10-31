@@ -23,6 +23,6 @@ class StatsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { stats.todayCount.collectLatest { _today.value = it } }
-        // placeholder: expose real streak when repository provides it
+        viewModelScope.launch { stats.streakFlow.collectLatest { _streak.value = it } }
     }
 }
