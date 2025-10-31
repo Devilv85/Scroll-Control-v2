@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Exclude encrypted preferences from backup -->
+    <exclude domain="sharedpref" path="scroll_control_encrypted_prefs" />
+    <exclude domain="sharedpref" path="androidx.security.crypto.MasterKey" />
+</full-backup-content>

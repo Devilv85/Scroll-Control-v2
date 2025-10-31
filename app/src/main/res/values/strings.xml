@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Scroll Control</string>
+    
+    <!-- Accessibility Service -->
+    <string name="accessibility_service_label">Scroll Control</string>
+    <string name="accessibility_service_description">Intelligently detects and redirects away from short-form video content on YouTube Shorts and Instagram Reels to help maintain digital wellness and focus.</string>
+    
+    <!-- Main Screen -->
+    <string name="main_title">Scroll Control</string>
+    <string name="service_active">Active</string>
+    <string name="service_inactive">Inactive</string>
+    <string name="enable_service">Enable Service</string>
+    <string name="service_enabled">Service is running</string>
+    
+    <!-- Stats -->
+    <string name="today_interventions">Today: %d</string>
+    <string name="interventions_count">interventions</string>
+    
+    <!-- Navigation -->
+    <string name="nav_main">Main</string>
+    <string name="nav_stats">Stats</string>
+    <string name="nav_settings">Settings</string>
+    
+    <!-- Content Descriptions -->
+    <string name="cd_main_toggle">Toggle service on/off</string>
+    <string name="cd_service_status">Service status indicator</string>
+    
+    <!-- Common -->
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+</resources>
