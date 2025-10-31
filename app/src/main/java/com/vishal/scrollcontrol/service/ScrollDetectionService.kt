@@ -7,12 +7,10 @@ import com.vishal.scrollcontrol.core.SettingsRepository
 import com.vishal.scrollcontrol.data.StatsRepository
 import com.vishal.scrollcontrol.domain.InterventionController
 import com.vishal.scrollcontrol.domain.Stage
+import com.vishal.scrollcontrol.ui.overlay.OverlayController
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 
 private const val PKG_YOUTUBE = "com.google.android.youtube"
 private const val PKG_INSTAGRAM = "com.instagram.android"
@@ -25,9 +23,11 @@ class ScrollDetectionService : AccessibilityService() {
     private val controller = InterventionController()
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private lateinit var overlay: OverlayController
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        overlay = OverlayController(this)
         serviceScope.launch { settings.setDefaultsIfMissing() }
     }
 
@@ -42,7 +42,7 @@ class ScrollDetectionService : AccessibilityService() {
 
             val root = rootInActiveWindow ?: return@launch
             val score = scoreSignals(pkg, root)
-            if (score < 0.6f) return@launch
+            if (score < thresholdFor(pkg)) return@launch
 
             val now = System.currentTimeMillis()
             val next = controller.update(
@@ -54,20 +54,20 @@ class ScrollDetectionService : AccessibilityService() {
 
             when (next.stage) {
                 Stage.GRACE -> Unit
-                Stage.NUDGE -> if (cfg.overlaysEnabled) gentleNudge()
-                Stage.PAUSE -> if (cfg.overlaysEnabled) mindfulPause()
-                Stage.REDIRECT -> { tryRedirect(pkg); incrementTodayAsync() }
-                Stage.BLOCK -> { enforceCooldown(pkg); incrementTodayAsync() }
+                Stage.NUDGE -> if (cfg.overlaysEnabled) overlay.showMessage("Mindful moment")
+                Stage.PAUSE -> if (cfg.overlaysEnabled) overlay.showMessage("Take a breath")
+                Stage.REDIRECT -> { performGlobalAction(GLOBAL_ACTION_BACK); incrementTodayAsync() }
+                Stage.BLOCK -> { performGlobalAction(GLOBAL_ACTION_HOME); incrementTodayAsync() }
             }
         }
     }
 
-    override fun onInterrupt() {}
+    override fun onInterrupt() { overlay.hide() }
+
+    private fun thresholdFor(pkg: String) = if (pkg == PKG_YOUTUBE) 0.6f else 0.55f
 
     private fun scoreSignals(pkg: String, root: AccessibilityNodeInfo): Float {
-        var idHits = 0
-        var textHits = 0
-        var urlHits = 0
+        var idHits = 0; var textHits = 0; var urlHits = 0; var rapidScroll = 0
         fun visit(node: AccessibilityNodeInfo?) {
             if (node == null) return
             node.viewIdResourceName?.let { vid ->
@@ -83,20 +83,12 @@ class ScrollDetectionService : AccessibilityService() {
             for (i in 0 until node.childCount) visit(node.getChild(i))
         }
         visit(root)
-        val weighted = idHits * 0.5f + textHits * 0.3f + urlHits * 0.2f
+        // simple scroll heuristic placeholder (to be tied to TYPE_VIEW_SCROLLED counts later)
+        val weighted = idHits * 0.5f + textHits * 0.3f + urlHits * 0.15f + rapidScroll * 0.05f
         return 1f - (1f / (1f + weighted))
     }
 
-    private fun gentleNudge() { /* TODO overlay/haptic */ }
-    private fun mindfulPause() { /* TODO overlay */ }
-    private fun tryRedirect(pkg: String) { performGlobalAction(GLOBAL_ACTION_BACK) }
-    private fun enforceCooldown(pkg: String) { performGlobalAction(GLOBAL_ACTION_HOME) }
-
     private fun incrementTodayAsync() {
-        serviceScope.launch {
-            runCatching {
-                stats.markIntervention(java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR))
-            }
-        }
+        serviceScope.launch { runCatching { stats.markIntervention(java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR)) } }
     }
 }
