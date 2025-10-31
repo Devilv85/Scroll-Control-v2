@@ -10,6 +10,10 @@ import com.vishal.scrollcontrol.domain.Stage
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.Calendar
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 private const val PKG_YOUTUBE = "com.google.android.youtube"
 private const val PKG_INSTAGRAM = "com.instagram.android"
@@ -21,8 +25,11 @@ class ScrollDetectionService : AccessibilityService() {
     @Inject lateinit var stats: StatsRepository
     private val controller = InterventionController()
 
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     override fun onServiceConnected() {
         super.onServiceConnected()
+        serviceScope.launch { settings.setDefaultsIfMissing() }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -35,11 +42,16 @@ class ScrollDetectionService : AccessibilityService() {
         if (score < 0.6f) return
 
         val now = System.currentTimeMillis()
+
+        // Read settings once per event for simplicity (will be optimized later by caching flows)
+        val graceMs = 5 * 60_000L
+        val cooldownMs = 60 * 60_000L
+
         val next = controller.update(
             packageName = pkg,
             now = now,
-            graceMs = 5 * 60_000L,
-            cooldownMs = 60 * 60_000L
+            graceMs = graceMs,
+            cooldownMs = cooldownMs
         )
 
         when (next.stage) {
@@ -48,11 +60,11 @@ class ScrollDetectionService : AccessibilityService() {
             Stage.PAUSE -> mindfulPause()
             Stage.REDIRECT -> {
                 tryRedirect(pkg)
-                incrementToday()
+                incrementTodayAsync()
             }
             Stage.BLOCK -> {
                 enforceCooldown(pkg)
-                incrementToday()
+                incrementTodayAsync()
             }
         }
     }
@@ -87,21 +99,15 @@ class ScrollDetectionService : AccessibilityService() {
     private fun gentleNudge() { /* TODO overlay/haptic */ }
     private fun mindfulPause() { /* TODO overlay */ }
 
-    private fun tryRedirect(pkg: String) {
-        performGlobalAction(GLOBAL_ACTION_BACK)
-    }
+    private fun tryRedirect(pkg: String) { performGlobalAction(GLOBAL_ACTION_BACK) }
+    private fun enforceCooldown(pkg: String) { performGlobalAction(GLOBAL_ACTION_HOME) }
 
-    private fun enforceCooldown(pkg: String) {
-        performGlobalAction(GLOBAL_ACTION_HOME)
-    }
-
-    private fun incrementToday() {
-        val cal = Calendar.getInstance()
-        val dayOfYear = cal.get(Calendar.DAY_OF_YEAR)
-        // Best-effort; this is a service context, ensure non-blocking in future with coroutine scope
-        try {
-            // Placeholder; will be moved to coroutine scope in subsequent commit
-            stats.markIntervention(dayOfYear)
-        } catch (_: Throwable) { }
+    private fun incrementTodayAsync() {
+        serviceScope.launch {
+            try {
+                val cal = Calendar.getInstance()
+                stats.markIntervention(cal.get(Calendar.DAY_OF_YEAR))
+            } catch (_: Throwable) { }
+        }
     }
 }
