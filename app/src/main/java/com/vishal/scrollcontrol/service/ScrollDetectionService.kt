@@ -4,9 +4,11 @@ import android.accessibilityservice.AccessibilityService
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.vishal.scrollcontrol.core.SettingsRepository
+import com.vishal.scrollcontrol.data.StatsRepository
 import com.vishal.scrollcontrol.domain.InterventionController
 import com.vishal.scrollcontrol.domain.Stage
 import dagger.hilt.android.AndroidEntryPoint
+import java.util.Calendar
 import javax.inject.Inject
 
 private const val PKG_YOUTUBE = "com.google.android.youtube"
@@ -16,6 +18,7 @@ private const val PKG_INSTAGRAM = "com.instagram.android"
 class ScrollDetectionService : AccessibilityService() {
 
     @Inject lateinit var settings: SettingsRepository
+    @Inject lateinit var stats: StatsRepository
     private val controller = InterventionController()
 
     override fun onServiceConnected() {
@@ -29,10 +32,9 @@ class ScrollDetectionService : AccessibilityService() {
 
         val root = rootInActiveWindow ?: return
         val score = scoreSignals(pkg, root)
-        if (score < 0.6f) return // threshold gate to avoid false positives
+        if (score < 0.6f) return
 
         val now = System.currentTimeMillis()
-        // Defaults: grace 5 min, cooldown 60 min
         val next = controller.update(
             packageName = pkg,
             now = now,
@@ -44,8 +46,14 @@ class ScrollDetectionService : AccessibilityService() {
             Stage.GRACE -> Unit
             Stage.NUDGE -> gentleNudge()
             Stage.PAUSE -> mindfulPause()
-            Stage.REDIRECT -> tryRedirect(pkg)
-            Stage.BLOCK -> enforceCooldown(pkg)
+            Stage.REDIRECT -> {
+                tryRedirect(pkg)
+                incrementToday()
+            }
+            Stage.BLOCK -> {
+                enforceCooldown(pkg)
+                incrementToday()
+            }
         }
     }
 
@@ -73,25 +81,27 @@ class ScrollDetectionService : AccessibilityService() {
 
         visit(root)
         val weighted = idHits * 0.5f + textHits * 0.3f + urlHits * 0.2f
-        return 1f - (1f / (1f + weighted)) // logistic-like smoothing
+        return 1f - (1f / (1f + weighted))
     }
 
-    private fun gentleNudge() {
-        // TODO: show subtle overlay or haptic feedback
-    }
-
-    private fun mindfulPause() {
-        // TODO: brief breathing prompt overlay
-    }
+    private fun gentleNudge() { /* TODO overlay/haptic */ }
+    private fun mindfulPause() { /* TODO overlay */ }
 
     private fun tryRedirect(pkg: String) {
-        // Attempt best-effort soft navigation away from Shorts/Reels
-        // Keep calls defensive; Accessibility may not always permit actions
         performGlobalAction(GLOBAL_ACTION_BACK)
     }
 
     private fun enforceCooldown(pkg: String) {
-        // Close the app view and rely on controller to keep blocking during cooldown
         performGlobalAction(GLOBAL_ACTION_HOME)
+    }
+
+    private fun incrementToday() {
+        val cal = Calendar.getInstance()
+        val dayOfYear = cal.get(Calendar.DAY_OF_YEAR)
+        // Best-effort; this is a service context, ensure non-blocking in future with coroutine scope
+        try {
+            // Placeholder; will be moved to coroutine scope in subsequent commit
+            stats.markIntervention(dayOfYear)
+        } catch (_: Throwable) { }
     }
 }
